@@ -1,0 +1,143 @@
+package Evaluation;
+
+import java.util.ArrayList;
+
+public class Statistics {
+
+	private int truePos;
+	private int falsePos;
+	private int trueNeg;
+	private int falseNeg;
+
+	void statistics() {
+		trueNeg = 0;
+		truePos = 0;
+		falseNeg = 0;
+		falsePos = 0;
+	}
+
+	public void incrementTruePos() {
+		truePos += 1;
+	}
+
+	public void incrementTrueNeg() {
+		trueNeg += 1;
+	}
+
+	public void incrementFalsePos() {
+		falsePos += 1;
+	}
+
+	public void incrementFalseNeg() {
+		falseNeg += 1;
+	}
+
+	public void setTruePos(int val) {
+		truePos = val;
+	}
+
+	public void setTrueNeg(int val) {
+		trueNeg = val;
+	}
+
+	public void setFalsePos(int val) {
+		falsePos = val;
+	}
+
+	public void setFalseNeg(int val) {
+		falseNeg = val;
+	}
+
+	public int getTruePos() {
+		return truePos;
+	}
+
+	public int getTrueNeg() {
+		return trueNeg;
+	}
+
+	public int getFalsePos() {
+		return falsePos;
+	}
+
+	public int getFalseNeg() {
+		return falseNeg;
+	}
+
+	public double getRecall() {
+		double recall = (double) truePos / (double) (truePos + falseNeg);
+		return recall;
+	}
+
+	public double getPrecision() {
+		double precision = (double) truePos / (double) (truePos + falsePos);
+		return precision;
+	}
+
+	public double getFmeasure() {
+		double fmeasure = 2 * getRecall() * getPrecision()
+				/ (getPrecision() + getRecall());
+		return fmeasure;
+	}
+
+	public static double getMicroFmeasure(ArrayList<Statistics> statList) {
+		double microRec = getMicroRecall(statList);
+		double microPrec = getMicroPrecision(statList);
+		double fmeasure = 2 * microRec * microPrec / (microPrec + microRec);
+		return fmeasure;
+	}
+
+	public static double getMicroPrecision(ArrayList<Statistics> statList) {
+		double microPrec;
+		double sumofTP = 0d;
+		double sumofFP = 0d;
+		for (int i = 0; i < statList.size(); i++) {
+			sumofFP += statList.get(i).getFalsePos();
+			sumofTP += statList.get(i).getTruePos();
+		}
+		microPrec = (sumofTP) / (sumofFP + sumofTP);
+		return microPrec;
+	}
+
+	public static double getMicroRecall(ArrayList<Statistics> statList) {
+		double microRec;
+		double sumofTP = 0d;
+		double sumofFN = 0d;
+		for (int i = 0; i < statList.size(); i++) {
+			sumofFN += statList.get(i).getFalseNeg();
+			sumofTP += statList.get(i).getTruePos();
+		}
+		microRec = (sumofTP) / (sumofFN + sumofTP);
+		return microRec;
+	}
+
+	public static double getMacroFmeasure(ArrayList<Statistics> statList) {
+		double microRec = getMacroRecall(statList);
+		double microPrec = getMacroPrecision(statList);
+		double fmeasure = 2 * microRec * microPrec / (microPrec + microRec);
+		return fmeasure;
+	}
+
+	public static double getMacroPrecision(ArrayList<Statistics> statList) {
+		double macroPrec;
+		double sumofPrec = 0d;
+		double totalNumber = statList.size();
+		for (int i = 0; i < statList.size(); i++) {
+			sumofPrec += statList.get(i).getPrecision();
+		}
+		macroPrec = sumofPrec / totalNumber;
+		return macroPrec;
+	}
+
+	public static double getMacroRecall(ArrayList<Statistics> statList) {
+		double macroRec;
+		double sumofRec = 0d;
+		double totalNumber = statList.size();
+		for (int i = 0; i < statList.size(); i++) {
+			sumofRec += statList.get(i).getRecall();
+		}
+		macroRec = sumofRec / totalNumber;
+		return macroRec;
+	}
+
+}

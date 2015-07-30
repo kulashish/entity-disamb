@@ -1,0 +1,29 @@
+package spotting;
+
+import java.io.Serializable;
+import java.util.List;
+import java.util.ArrayList;
+
+import org.ejml.data.DenseMatrix64F;
+import org.ejml.simple.SimpleMatrix;
+
+public class EdgePotentialsMatrix implements Serializable{
+
+	// Edge potential types
+	public static int CATEGORY_SIM = 0;
+	public static int COSINE_SIM = 1;
+	public static int OUTLINK_SIM = 2;
+	public static int INLINK_SIM = 3;
+	
+	public int potential_type;  // The type of edge potential of this matrix (from the 4 above)
+	
+	public int size;  // size of similarity matrix
+	public DenseMatrix64F matrix;
+	
+	public EdgePotentialsMatrix(int numNodes) {
+		matrix = new DenseMatrix64F(numNodes, numNodes);
+		size = numNodes;
+	}
+	
+}
+

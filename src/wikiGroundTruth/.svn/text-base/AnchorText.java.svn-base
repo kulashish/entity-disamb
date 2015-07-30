@@ -1,0 +1,21 @@
+package wikiGroundTruth.berkeleyDb;
+
+import static com.sleepycat.persist.model.Relationship.MANY_TO_ONE;
+
+import com.sleepycat.persist.model.Entity;
+import com.sleepycat.persist.model.PrimaryKey;
+import com.sleepycat.persist.model.SecondaryKey;
+
+@Entity
+public class AnchorText {
+	public String docTitle = new String();
+	public String anchor = new String();
+	public String context = new String();
+	public int offset;
+	@PrimaryKey
+	public long srno;
+
+	@SecondaryKey(relate = MANY_TO_ONE)
+	public String entity = new String();
+
+}

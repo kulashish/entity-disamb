@@ -1,0 +1,10 @@
+package util;
+
+public class XMLTagInfo {
+
+	public String wikiEntity;
+	public int offset;
+	public int length;
+	public String mention;
+
+}

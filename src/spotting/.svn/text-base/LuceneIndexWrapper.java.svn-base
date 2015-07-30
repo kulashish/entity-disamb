@@ -1,0 +1,1125 @@
+package spotting;
+
+import it.unimi.dsi.util.Interval;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.StringTokenizer;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import util.MorphologicalAnalyzer;
+import util.ParseXML;
+import weka.classifiers.Classifier;
+import weka.core.Attribute;
+import weka.core.FastVector;
+import weka.core.Instance;
+import weka.core.Instances;
+
+import java.net.URLEncoder;
+
+
+import org.apache.lucene.analysis.*;
+import org.apache.lucene.document.*;
+import org.apache.lucene.index.*;
+import org.apache.lucene.store.*;
+import org.apache.lucene.search.*;
+import org.apache.lucene.queryParser.*;
+import org.apache.lucene.util.Version;
+import org.tartarus.snowball.ext.PorterStemmer;
+
+import com.sun.org.apache.xpath.internal.FoundIndex;
+
+import edu.stanford.nlp.tagger.maxent.MaxentTagger;
+
+public class LuceneIndexWrapper {
+	String indexName = null;       				//local copy of the configuration variable
+	String indexNameForRedirects = null;
+	String indexNameForDisamb = null;
+	String indexNameForInLinks = null;
+	IndexReader reader = null;
+	IndexReader readerForRedirects =null;
+	IndexReader readerForDisamb =null;
+	IndexReader readerForInLinks =null;
+	IndexSearcher searcher = null;          //the searcher used to open/search the index
+	IndexSearcher searcherForId = null;
+	IndexSearcher searcherForRedirects = null;
+	IndexSearcher searcherForInLinks = null;
+	IndexSearcher searcherForDisamb = null;
+	Analyzer analyzer = null;
+	Analyzer analyzer2 = null;
+	QueryParser qp = null;
+	QueryParser qpredirects = null;
+	QueryParser qpdisamb = null;
+	QueryParser qpid = null;
+	QueryParser qpinLinks = null;
+	Query query = null;                     //the Query created by the QueryParser
+	Query queryGroundEnt = null;                     //the Query created by the QueryParser
+
+	TopDocs hits = null;   //the search results
+	TopDocs hitsforGroundEnt = null;
+	TopDocs hitsforRedirects = null;
+	TopDocs hitsforDisamb = null;
+	TopDocs hitsforId = null;
+	TopDocs hitsforinLinks = null;
+	public final Version LuceneVersion = Version.LUCENE_31;
+	public final Version LuceneVersion1 = Version.LUCENE_31; //36
+	private final Pattern outlink_pattern = Pattern.compile("\\|([0-9]*)?/([0-9]*)?\\|");
+	private final Pattern freq_pattern = Pattern.compile("\\|([0-9a-zA-Z]*)?/([0-9]*)?\\|");
+	private final Pattern synopsis_pattern = Pattern.compile("\\|([\\sa-zA-Z][\\s0-9a-zA-Z]*)?\\|");
+	private final Pattern digit_pattern = Pattern.compile("[0-9]+");
+	private final Pattern adj_pattern = Pattern.compile("\\s(.*)?\\s");
+	Instances dataset;
+	Classifier cls;
+
+	public LuceneIndexWrapper() {
+		// empty default constructor
+	}
+
+	//Kanika : common constructor for all 4 indices. (category index not added till now)
+	public LuceneIndexWrapper(String indexLoc,String indexLocForRedirects,String indexInlinks, String indexLocForDisamb) {
+		indexName = indexLoc;
+		indexNameForRedirects = indexLocForRedirects;
+		indexNameForDisamb = indexLocForDisamb;
+		indexNameForInLinks = indexInlinks;
+		try {
+			dataset = new Instances(
+					new BufferedReader(
+							new FileReader("/home/kanika/workspace/EntityDisamb/comb_3f_01.arff")));
+			dataset.setClassIndex(dataset.numAttributes() - 1);
+
+			cls = (Classifier) weka.core.SerializationHelper.read("/home/kanika/workspace/EntityDisamb/log_3f_110K.model");
+			reader = IndexReader.open(FSDirectory.open(new File(indexName))); 
+			readerForRedirects = IndexReader.open(FSDirectory.open(new File(indexNameForRedirects)));
+			readerForDisamb = IndexReader.open(FSDirectory.open(new File(indexNameForDisamb)));
+			readerForInLinks = IndexReader.open(FSDirectory.open(new File(indexNameForInLinks)));
+			searcher = new IndexSearcher(reader);
+			searcherForId = new IndexSearcher(reader);
+			searcherForRedirects = new IndexSearcher(readerForRedirects);
+			searcherForDisamb = new IndexSearcher(readerForDisamb);		
+			searcherForInLinks = new IndexSearcher(readerForInLinks);
+			analyzer = new SimpleAnalyzer(LuceneVersion);           //construct our usual analyzer
+			analyzer2 = new KeywordAnalyzer();
+			qp = new QueryParser(LuceneVersion, "NE_type", analyzer);
+			qpredirects = new QueryParser(LuceneVersion, "redirect_text", analyzer);
+			qpdisamb = new QueryParser(LuceneVersion, "page_title", analyzer);
+			qpinLinks = new QueryParser (LuceneVersion1, "page_id", analyzer2);
+			qpid = new QueryParser(LuceneVersion, "page_id", analyzer2);
+		} catch (Exception e) {
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+	}
+
+	// for InlinkIndex and CategIndex
+	public LuceneIndexWrapper(String indexLoc) {
+		indexName = indexLoc;
+		indexNameForRedirects = null;
+		try {
+			reader = IndexReader.open(FSDirectory.open(new File(indexName)), true); 
+			searcher = new IndexSearcher(reader);
+			analyzer = new SimpleAnalyzer(LuceneVersion);           
+			qp = new QueryParser(LuceneVersion, "NE_type", analyzer);
+		} catch (Exception e) {
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+	}
+
+	// for original LuceneIndex
+	public LuceneIndexWrapper(String indexLoc,String indexLocForRedirects) {
+		indexName = indexLoc;
+		indexNameForRedirects = indexLocForRedirects;
+		try {
+			reader = IndexReader.open(FSDirectory.open(new File(indexName)), true); 
+			readerForRedirects = IndexReader.open(FSDirectory.open(new File(indexNameForRedirects)), true);
+			searcher = new IndexSearcher(reader);
+			searcherForId = new IndexSearcher(reader);
+			searcherForRedirects = new IndexSearcher(readerForRedirects);
+			analyzer = new SimpleAnalyzer(LuceneVersion);           //construct our usual analyzer
+			analyzer2 = new KeywordAnalyzer();
+			qp = new QueryParser(LuceneVersion, "NE_type", analyzer);
+			qpredirects = new QueryParser(LuceneVersion, "redirect_text", analyzer);
+			qpid = new QueryParser(LuceneVersion, "page_id", analyzer2);
+		} catch (Exception e) {
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+	}
+
+	private String buildpageidQuery(String idString){
+		String title = QueryParser.escape(idString);
+		String queryString = "+page_id:(" +"\""+title+"\""+ ")";
+		return queryString;
+	}
+
+	private String buildDisambQuery(String phrase, KeywordsGroundTruth keywordsGroundTruth, int firstkeywordIndex , int lengthofPhrase ){
+		String title = QueryParser.escape(phrase);
+		String queryString = "+page_title:(" +"\""+title.toLowerCase()+"\""+ ")";
+		return queryString;
+	}
+	private String buildRedirectQuery(String phrase, KeywordsGroundTruth keywordsGroundTruth, int firstkeywordIndex , int lengthofPhrase ){
+		String title = QueryParser.escape(phrase);
+		String queryString = "+redirect_text:(" +"\""+title.toLowerCase()+"\""+ ")";
+		return queryString;
+	}
+
+	private String buildGroundEntQuery(String phrase){
+		String title = QueryParser.escape(phrase);
+		String queryString = "+page_title:(" +"\""+title.toLowerCase()+"\""+ ")";
+		return queryString;
+
+	}
+	private String buildPhraseSearchQuery(String phrase, KeywordsGroundTruth keywordsGroundTruth, int firstkeywordIndex , int lengthofPhrase ){
+		ArrayList<KeywordsGroundTruth.Mention> keywords = keywordsGroundTruth.getKeywords();
+		String title = QueryParser.escape(phrase);
+		if (title == null || "".equals(title) || " ".equals(title)) {
+			System.exit(1);
+		}
+		String queryString = "+page_title:(" +"\""+title.toLowerCase()+"\""+ ")^4";
+		String nouns = "";
+		String vbadj = "";
+
+//		for(int i=firstkeywordIndex ; i<Math.min(firstkeywordIndex+lengthofPhrase,keywords.size()) ;i++){
+//			if(phrase.contains(keywords.get(i).name)){
+//				for (String context_noun : keywords.get(i).context_nouns) {
+//					if (context_noun == null || "".equals(context_noun)) continue;
+//					nouns += " " + QueryParser.escape(context_noun.toLowerCase());
+//				}
+//			}
+//		}
+//		for(int i=firstkeywordIndex ; i<Math.min(firstkeywordIndex+lengthofPhrase,keywords.size()) ;i++){
+//			if(phrase.contains(keywords.get(i).name)){
+//				for (String context_vbadj : keywords.get(i).context_vbadj) {
+//					if (context_vbadj == null || "".equals(context_vbadj)) continue;
+//					vbadj += " " + QueryParser.escape(context_vbadj.toLowerCase());
+//				}
+//			}
+//		}
+//
+//		if (!"".equals(nouns)) {
+//			queryString += " synopsis:(" + nouns + ")^2";
+//			queryString += " frequent:(" + nouns + ")^2";
+//		}
+//
+//		if (!"".equals(vbadj)) {
+//			queryString += " synopsis_vbadj:(" + vbadj + ")";
+//		}
+
+		return queryString;
+	}
+
+	/*    private String buildSearchQuery(String name, KeywordsGroundTruth.Mention mention) {
+
+		String title = QueryParser.escape(name);
+		if (title == null || "".equals(title) || " ".equals(title)) {
+		//	System.out.println("Error: empty title");
+			System.exit(1);
+		}
+
+		String queryString = "+page_title:(" + title.toLowerCase()  + ")^4";
+		String nouns = "";
+		String vbadj = "";
+		for (String context_noun : mention.context_nouns) {
+			if (context_noun == null || "".equals(context_noun)) continue;
+			nouns += " " + QueryParser.escape(context_noun.toLowerCase());
+		}
+		for (String context_vbadj : mention.context_vbadj) {
+			if (context_vbadj == null || "".equals(context_vbadj)) continue;
+			vbadj += " " + QueryParser.escape(context_vbadj.toLowerCase());
+		}
+		if (!"".equals(nouns)) {
+			queryString += " synopsis:(" + nouns + ")";
+			queryString += " frequent:(" + nouns + ")";
+		}
+		if (!"".equals(vbadj)) {
+			queryString += " synopsis_vbadj:(" + vbadj + ")";
+		}
+
+		return queryString;
+    }
+
+
+    //name : all the morphologies of the mention.name with the original mention also as input 
+    private void searchMentionInIndex(String name,KeywordsGroundTruth.Mention mention, int maxHits) {
+
+    		String title = QueryParser.escape(name);
+    		if (title == null || "".equals(title) || " ".equals(title)) {
+    			System.out.println("Error: empty title");
+    			System.exit(1);
+    		}
+
+    		String queryString = "+page_title:(" + title  + ")^4";
+    		String nouns = "";
+    		String vbadj = "";
+    		for (String context_noun : mention.context_nouns) {
+    			if (context_noun == null || "".equals(context_noun)) continue;
+    			nouns += " " + QueryParser.escape(context_noun);
+    		}
+    		for (String context_vbadj : mention.context_vbadj) {
+    			if (context_vbadj == null || "".equals(context_vbadj)) continue;
+    			vbadj += " " + QueryParser.escape(context_vbadj);
+    		}
+    		if (!"".equals(nouns)) {
+    			queryString += " synopsis:(" + nouns + ")";
+    			queryString += " frequent:(" + nouns + ")";
+    		}
+    		if (!"".equals(vbadj)) {
+    			queryString += " synopsis_vbadj:(" + vbadj + ")";
+    		}
+    		try {
+    		query = qp.parse(queryString); 
+    		} catch (ParseException e) {
+    			System.out.println("Error in parsing query: " + e.getMessage());
+    			System.out.println("query: " + queryString);
+    			System.exit(1);    		
+    		}
+    		try {
+    			hits = searcher.search(query, 3 * maxHits);  // run the query
+    		} catch (Exception e) {
+    			System.out.println("Error: " + e.getMessage());
+    			System.exit(1);
+    		}
+    		if (hits.totalHits == 0) {
+    			// empty result
+    		}
+
+    }*/
+
+	private void searchStringInDisambIndex(String queryString ,int numNodes) throws Exception{
+		try {
+			query = qpdisamb.parse(queryString);
+			//	System.out.println("query: " + queryString);
+		} catch (ParseException e) {
+			System.out.println("Error in parsing query: " + e.getMessage());
+			System.out.println("query: " + queryString);
+			System.exit(1);    		
+		}
+		try {
+			hitsforDisamb = searcherForDisamb.search(query, numNodes);  // run the query
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+		if (hitsforDisamb.totalHits == 0) {
+			// empty result
+		}
+	}
+
+	private void searchStringInRedirectionIndex(String queryString ,int numNodes) throws Exception{
+		try {
+			query = qpredirects.parse(queryString);
+			//	System.out.println("query: " + queryString);
+		} catch (ParseException e) {
+			System.out.println("Error in parsing query: " + e.getMessage());
+			System.out.println("query: " + queryString);
+			System.exit(1);    		
+		}
+		try {
+			hitsforRedirects = searcherForRedirects.search(query, numNodes);  // run the query
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+		if (hitsforRedirects.totalHits == 0) {
+			// empty result
+		}
+	}
+
+	private void searchidInIndex(String queryString, int maxHits) throws Exception {
+		try {
+			query = qpid.parse(queryString);
+		} catch (ParseException e) {
+			System.out.println("Error in parsing query: " + e.getMessage());
+			System.out.println("query: " + queryString);
+			System.exit(1);    		
+		}
+		try {
+			hitsforId = searcherForId.search(query, 3 * maxHits);  // run the query
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+		if (hitsforId.totalHits == 0) {
+			// empty result
+		}
+	}
+
+	private void  searchTitleInIndex (String queryString){
+		try {	
+			queryGroundEnt = qp.parse(queryString);
+			
+		} catch (ParseException e) {
+			e.printStackTrace();
+			System.out.println("Error in parsing query: " + e.getMessage());
+			System.out.println("query: " + queryString);
+			System.exit(1);    		
+		}
+		try{
+			hitsforGroundEnt = searcher.search(queryGroundEnt,1000);
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+		if (hitsforGroundEnt.totalHits == 0) {
+			// empty result
+		}
+
+	}
+	private void searchStringInIndex(String queryString, int maxHits) throws Exception {
+		try {
+			query = qp.parse(queryString);
+			//	System.out.println("query: " + queryString);
+		} catch (ParseException e) {
+			System.out.println("Error in parsing query: " + e.getMessage());
+			System.out.println("query: " + queryString);
+			System.exit(1);    		
+		}
+		try {
+			hits = searcher.search(query, 3 * maxHits);  // run the query
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+		if (hits.totalHits == 0) {
+			// empty result
+		}
+	}
+
+	private void searchidInInlinksIndex(String queryString, int maxHits) throws Exception {
+		try {
+			query = qpinLinks.parse(queryString);
+		} catch (ParseException e) {
+			System.out.println("Error in parsing query: " + e.getMessage());
+			System.out.println("query: " + queryString);
+			System.exit(1);    		
+		}
+		try {
+			hitsforinLinks = searcherForInLinks.search(query, 3 * maxHits);  // run the query
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println("Error: " + e.getMessage());
+			System.exit(1);
+		}
+		if (hitsforinLinks.totalHits == 0) {
+			// empty result
+		}
+	}
+
+	private ArrayList<Integer> parseInLinks(Integer entid){
+		ArrayList<Integer> inlinks = new ArrayList<Integer>();
+		String query = buildInLinksQuery(entid);
+		try {
+			searchidInInlinksIndex(query, 4);
+			if(!(hitsforinLinks.scoreDocs.length==0)){
+				int h=0;
+				for(;h<hitsforinLinks.scoreDocs.length;h++){
+					Document doc = searcherForInLinks.doc(hitsforinLinks.scoreDocs[h].doc);
+					String links = doc.get("inlinks");
+					String[] allLinks = links.split(" ");
+					for(int i=0;i<allLinks.length;i++){
+						inlinks.add(Integer.parseInt(allLinks[i]));
+					}
+				}
+			}
+		}catch (Exception e) {
+			e.printStackTrace();
+		}
+		return inlinks;
+	}
+
+	private ArrayList<String> parseSynAdjWords(String freq) {
+		Matcher matcher = adj_pattern.matcher(freq);
+		String word = new String();
+		ArrayList<String> wordList = new ArrayList<String>();
+		while (matcher.find()) {			
+			word = matcher.group(1);
+			wordList.add(word.trim().toLowerCase());
+		}
+		return wordList;
+	}
+
+
+	private ArrayList<String> parseSynWords(String freq) {
+		Matcher matcher = synopsis_pattern.matcher(freq);
+		String word = new String();
+		ArrayList<String> wordList = new ArrayList<String>();
+		while (matcher.find()) {			
+			word = matcher.group(1);
+			wordList.add(word.trim().toLowerCase());
+		}
+		return wordList;
+	}
+
+
+	private ArrayList<String> parseFreqWords(String freq) {
+		Matcher matcher = freq_pattern.matcher(freq);
+		String word = new String();
+		ArrayList<String> wordList = new ArrayList<String>();
+		while (matcher.find()) {			
+			word = matcher.group(1);
+			wordList.add(word.trim().toLowerCase());
+		}
+		return wordList;
+	}
+
+	private ArrayList<Integer> parseOutlinks(String outlinks) {
+		Matcher matcher = outlink_pattern.matcher(outlinks);
+		String id = new String();
+		ArrayList<Integer> idList = new ArrayList<Integer>();
+		while (matcher.find()) {			
+			id = matcher.group(1);
+			idList.add(Integer.parseInt(id));
+		}
+		return idList;
+	}
+
+	private String buildInLinksQuery(Integer id){
+		String entid = QueryParser.escape(id.toString());
+		String queryString = "+page_id:(" +"\""+entid+"\""+ ")";
+		return queryString;
+	}
+
+	private HashMap<Integer, Integer> parseOutlinks1(String outlinks) {
+		Matcher matcher = outlink_pattern.matcher(outlinks);
+		String id = new String();
+		String count = new String();
+		HashMap<Integer, Integer> idCount = new HashMap<Integer, Integer>();
+		while (matcher.find()) {			
+			id = matcher.group(1);
+			count = matcher.group(2);
+			idCount.put(Integer.parseInt(id), Integer.parseInt(count));
+		}
+		return idCount;
+	}
+
+
+	//for collective training data generation purpose
+
+	public NodePotentialsSet extractNodesforTraining(KeywordsGroundTruth keywordGroundTruth, int numNodes , int maxLength, String filename) {
+		NodePotentialsSet np_set = new NodePotentialsSet();
+		try {
+
+		}catch (Exception e) {
+			System.out.println("Error in extractNodes: " + e.getMessage());
+			e.printStackTrace();
+			System.exit(1);
+		}
+		return np_set;
+	}
+
+	//for collective training purpose
+	public NodePotentialsSet extractNodesForTraining(KeywordsGroundTruth keywordGroundTruth, int numNodes , int maxLength, String filename) {
+		
+		NodePotentialsSet np_set = new NodePotentialsSet();
+		try {
+			for(int i=0;i<keywordGroundTruth.getGroundMentionNames().size();i++){
+				String key = keywordGroundTruth.getGroundMentionNames().get(i);
+				int off = keywordGroundTruth.getGroundOffset().get(i);
+				String ent = keywordGroundTruth.getGroundTruth().get(i);
+				if(ent.equalsIgnoreCase("NA")){
+					continue;
+				}
+				String query = buildPhraseSearchQuery(key,keywordGroundTruth,off,off+key.length()); //same as earlier search query
+				String groundquery = buildGroundEntQuery(ent);
+				
+				HashSet<String> node_names = new HashSet<String>();
+				ArrayList<NodePotentials> temp_set = new ArrayList<NodePotentials>();
+				
+				boolean flag = false;
+				searchTitleInIndex(groundquery);
+				
+				if(!(hitsforGroundEnt.scoreDocs.length==0)){
+					for (int j=0;  j<hitsforGroundEnt.scoreDocs.length; j++) {
+						if(!flag){
+							Document docEnt = searcher.doc(hitsforGroundEnt.scoreDocs[j].doc);    //get the next document 
+							String pagetitle = docEnt.get("page_title");       			     //get its title
+							String id = docEnt.get("page_id");		                  				//get its id
+							String disamb = docEnt.get("title_disamb");
+							if (!((disamb == null) || disamb.equals(""))) 					//check for disambiguation tag
+								pagetitle = pagetitle + " (" + disamb + ")";
+							if(pagetitle.equalsIgnoreCase(ent)){
+								NodePotentials np = setNodePotentials(docEnt, key, off, j, hitsforGroundEnt, true);
+								node_names.add(ent);
+								temp_set.add(np);
+								flag=true;
+								break;
+							}
+						}
+
+					}
+
+				}
+					searchStringInIndex(query, numNodes);
+
+
+					if(!(hits.scoreDocs.length==0)){
+
+						int redundancy = 0;
+						int j = 0;
+						for (; j < numNodes && (j+redundancy) < hits.scoreDocs.length;) {
+							Document doc = searcher.doc(hits.scoreDocs[j+redundancy].doc);    //get the next document 
+							String pagetitle = doc.get("page_title");       			     //get its title
+							String id = doc.get("page_id");		                  				//get its id
+							String disamb = doc.get("title_disamb");
+							if ((pagetitle == null) || pagetitle.equals("")) 				//use the id if it has no title
+								pagetitle = id;
+
+							if (!((disamb == null) || disamb.equals(""))) 					//check for disambiguation tag
+								pagetitle = pagetitle + " (" + disamb + ")";
+							NodePotentials np = setNodePotentials(doc, key, off, j+redundancy,hits,false);
+
+							if(node_names.contains(pagetitle)){
+								redundancy++;
+								continue;
+							} else {
+								node_names.add(pagetitle);  
+								temp_set.add(np);
+							}
+
+							j++;
+						}
+					}
+					np_set.potentials_set.addAll(temp_set);
+				}
+			}catch (Exception e) {
+				System.out.println("Error in extractNodes: " + e.getMessage());
+				e.printStackTrace();
+				System.exit(1);
+			}
+
+			return np_set;
+
+		}
+		public NodePotentialsSet extractNodes(KeywordsGroundTruth keywordGroundTruth, int numNodes , int maxLength, String filename) {
+
+			NodePotentialsSet np_set = new NodePotentialsSet();
+
+			try {
+
+				ArrayList<String> tokens = new ArrayList<String>();
+				String text = keywordGroundTruth.getDocumentText();
+				//		System.out.println("text  "+text);
+				StringTokenizer str = new StringTokenizer(text);
+				while(str.hasMoreTokens()){
+					String token=str.nextToken();
+					if (token == null || "".equals(token)) continue;
+					//tokens.add(token.replaceAll("[^0-9a-z\\sA-Z/\\-]",""));
+					tokens.add(token.replaceAll("_"," "));
+				}
+				ArrayList<String> keywords = keywordGroundTruth.getMentionNames();
+				//			System.out.println("token");
+				//			for(String keyw:tokens){
+				//				System.out.print(keyw+" ");
+				//			}
+				//			System.out.println("keywords");
+				//			for(String keyw:keywords){
+				//				System.out.print(keyw+" ");
+				//			}
+				int curr_offset=0;
+				int s=0;
+				for(int i=0; i<tokens.size();){
+					if(!keywords.contains(tokens.get(i))){
+						//s=keywords.indexOf(tokens.get(i));
+						i++;
+						continue;
+					}
+					if(curr_offset==0){
+						curr_offset = text.indexOf(tokens.get(i));
+					}
+					else{
+						curr_offset = text.indexOf(tokens.get(i), curr_offset);
+					}
+					ArrayList<Integer> allOffset = new ArrayList<Integer>();
+					ArrayList<String> allWords = new ArrayList<String>();
+
+					allWords.addAll(tokens.subList(i, Math.min(tokens.size(),i+maxLength+1)));
+					allOffset.add(curr_offset);
+					int k;
+
+					//take n grams of specified length
+					for(k=i+1;k<=Math.min(tokens.size()-1,i+maxLength);k++){
+						int off = text.indexOf(tokens.get(k),curr_offset);
+						allOffset.add(off);
+					}
+
+					boolean foundDisamb = false;
+					boolean foundRedirect = false;
+					boolean flag=false;
+					int finalIndex=0;
+					int l;
+
+					//loop for all n-grams to 1 gram and break as we get any match
+					for(l=0;l<=allWords.size()-1;l++){
+
+						//if flag is false consider n-l gram	
+
+						if(!(flag||foundRedirect||foundDisamb)){
+							String mentiontext="";
+							for(int h=0;h<allWords.size()-l;h++){
+								if(h!=allWords.size()-l-1)
+									mentiontext+=allWords.get(h)+" ";
+								else
+									mentiontext+=allWords.get(h);
+							}
+							//			System.out.println("name "+ mentiontext);
+							HashSet<String> combined = new HashSet<String>();
+							ArrayList<String> morphs = new ArrayList<String>();
+							morphs = MorphologicalAnalyzer.analyze(mentiontext);
+							String titleString = "";
+
+							/*consider morphological variants for n grams string : note that it is not helpful in case of phrase but if we consider
+    					 one token string then this is required.*/
+
+							for(int m=0;m<morphs.size();m++){
+								if("".equals(morphs.get(m))||morphs.get(m)==null) continue;
+								combined.add(morphs.get(m));
+							}
+							if(combined.size()==0){
+								continue;
+							}
+
+							ArrayList<NodePotentials> temp_set_redirect = new ArrayList<NodePotentials>();
+							ArrayList<NodePotentials> temp_set_disamb = new ArrayList<NodePotentials>();
+							HashMap<String,String> temp_map_redirect = new HashMap<String, String>();
+							HashMap<String,String> temp_map_disamb = new HashMap<String, String>();
+							ArrayList<NodePotentials> temp_set = new ArrayList<NodePotentials>();
+							HashMap<String,String> temp_map = new HashMap<String, String>();
+							HashSet<String> node_names = new HashSet<String>();
+
+							//store n-gram string and its morphological variants in HashSet
+							for(String key : combined){
+
+
+								String query = buildPhraseSearchQuery(key,keywordGroundTruth,s,allWords.size()-l); //same as earlier search query
+								String redirectquery = buildRedirectQuery(key,keywordGroundTruth,s,allWords.size()-l); //specific to redirects
+								String disambquery = buildDisambQuery(key,keywordGroundTruth,s,allWords.size()-l); //specific to disambiguation
+								//							if(allWords.contains("common")){
+								//								System.out.println("query1: "+query);
+								//								System.out.println("query2: "+redirectquery);}
+								String name=mentiontext;
+								if(name.charAt(name.length()-1)=='.'||name.charAt(name.length()-1)==','||name.charAt(name.length()-1)==';'||
+										name.charAt(name.length()-1)==':'||name.charAt(name.length()-1)=='?'||name.charAt(name.length()-1)=='!')
+									name=name.substring(0, name.length()-1);
+								int length=allOffset.get(finalIndex)-allOffset.get(0)+allWords.get(finalIndex).length();
+								temp_map.put(name + "_" + allOffset.get(0), query);
+								searchStringInIndex(query, numNodes); //query index for phrase search query
+								if(!(hits.scoreDocs.length==0)){
+
+									int redundancy = 0;
+									int j = 0;
+									for (; j < numNodes && (j+redundancy) < hits.scoreDocs.length;) {
+										Document doc = searcher.doc(hits.scoreDocs[j+redundancy].doc);    //get the next document 
+										String pagetitle = doc.get("page_title");       			     //get its title
+										String id = doc.get("page_id");		                  				//get its id
+										String disamb = doc.get("title_disamb");
+										if ((pagetitle == null) || pagetitle.equals("")) 				//use the id if it has no title
+											pagetitle = id;
+
+										if (!((disamb == null) || disamb.equals(""))) 					//check for disambiguation tag
+											pagetitle = pagetitle + " (" + disamb + ")";
+										NodePotentials np = setNodePotentials(doc, name, allOffset.get(0), j+redundancy,hits,false);
+
+										if(node_names.contains(pagetitle)){
+											redundancy++;
+											continue;
+										} else {
+											node_names.add(pagetitle);  
+											temp_set.add(np);
+										}
+
+										j++;
+									}
+								}
+
+								searchStringInRedirectionIndex(redirectquery,numNodes); //query index for phrase search query
+								if(!(hitsforRedirects.scoreDocs.length==0)){
+									int h=0;
+									for(;h<numNodes && h<hitsforRedirects.scoreDocs.length;h++){
+										Document doc = searcherForRedirects.doc(hitsforRedirects.scoreDocs[h].doc);
+										String titleText = doc.get("redirect_text");
+										if(!titleText.equalsIgnoreCase(mentiontext)){
+											continue;
+										}
+										else{
+
+											foundRedirect=true;
+											ArrayList<NodePotentials> np = setNodePotentialsforRedirects(doc, key, allOffset.get(0), h,numNodes, temp_map_redirect);
+											if(np!=null)
+												temp_set_redirect.addAll(np);   							
+										}
+									}
+								}
+								searchStringInDisambIndex(disambquery,numNodes);
+								if(!(hitsforDisamb.scoreDocs.length==0)){
+									int h=0;
+									for(;h<numNodes && h<hitsforDisamb.scoreDocs.length;h++){
+										Document doc = searcherForDisamb.doc(hitsforDisamb.scoreDocs[h].doc);
+										String titleText = doc.get("page_title");
+										if(!(titleText.equalsIgnoreCase(mentiontext)||mentiontext.replaceAll("[,.;?!]", "").equalsIgnoreCase(titleText)||mentiontext.replaceAll("[.,;?':!\\-\\*]", "").equalsIgnoreCase(titleText))){
+											continue;
+										}
+										else{
+											foundDisamb=true;
+											ArrayList<NodePotentials> np = setNodePotentialsforDisamb(doc, key, allOffset.get(0), h,numNodes, temp_map_disamb);
+											if(np!=null)
+												temp_set_disamb.addAll(np);   							
+										}
+									}
+								}
+							} //end morph variant loop
+
+							for(String entity : node_names){
+								if(mentiontext.equalsIgnoreCase(entity)||mentiontext.replaceAll("[,.;?!]", "").equalsIgnoreCase(entity)||mentiontext.replaceAll("[.,;?':!\\-\\*]", "").equalsIgnoreCase(entity)){
+									flag=true;
+									break;
+								}
+							}
+
+							if(allWords.size()-l-1==0){
+								String temp = KeywordsGroundTruth.tagger.tagString(allWords.get(0)).toString();
+								if((temp.split("_")[1].trim().equalsIgnoreCase("DT")||temp.split("_")[1].trim().equalsIgnoreCase("PDT")||temp.split("_")[1].trim().equalsIgnoreCase("CC")))
+								{
+									flag=false;
+									foundRedirect=false;
+									foundDisamb=false;
+								}
+							}
+
+							if(flag){
+								finalIndex=allWords.size()-l-1;
+								np_set.potentials_set.addAll(temp_set);
+								np_set.mention_queries.putAll(temp_map);
+							}
+							if(foundRedirect){
+								finalIndex=allWords.size()-l-1;
+								np_set.potentials_set.addAll(temp_set_redirect);
+								np_set.mention_queries.putAll(temp_map_redirect);
+							}
+							if(foundDisamb){
+								//		System.out.println("found disamb for "+mentiontext);
+								finalIndex=allWords.size()-l-1;
+								np_set.potentials_set.addAll(temp_set_disamb);
+								np_set.mention_queries.putAll(temp_map_disamb);
+							}
+						} //end outermost if flag
+
+					} //end of n-grams for loop
+					for(int c=0;c<=finalIndex;c++){
+						if(keywords.contains(allWords.get(c))){
+							s++;
+						}
+					}
+					i=i+finalIndex+1;
+				} //end of tokens for loop
+
+			} catch (Exception e) {
+				System.out.println("Error in extractNodes: " + e.getMessage());
+				e.printStackTrace();
+				System.exit(1);
+			}
+
+			return np_set;
+		}
+
+
+		public ArrayList<NodePotentials> setNodePotentialsforDisamb(Document doc, String name, int offset, int i,int numNodes,HashMap<String,String> temp_map){
+			ArrayList<NodePotentials> np = new ArrayList<NodePotentials>();
+			try{
+				String ids = doc.get("id_list");		                  				//get its id
+				//	System.out.println("ids "+ids);
+				String disamb_text = doc.get("page_title");
+				String[] idArr = ids.split(" ");
+				for(String id : idArr){
+					String queryString = buildpageidQuery(id);
+					//	System.out.println("addidng features for id "+id);
+					temp_map.put(name+"_"+offset,queryString);
+					searchidInIndex(queryString, numNodes);
+					if(hitsforId.scoreDocs.length==0){
+						continue;
+					}
+					int j = 0;
+					for (; j < numNodes && j < hitsforId.scoreDocs.length;) {
+						Document doc1 = searcher.doc(hitsforId.scoreDocs[j].doc);    //get the next document 
+						String pagetitle = doc1.get("page_title");       			     //get its title
+						String pageid = doc1.get("page_id");		                  				//get its id
+						String disamb = doc1.get("title_disamb");
+						if ((pagetitle == null) || pagetitle.equals("")) 				//use the id if it has no title
+							pagetitle = pageid;
+
+						if (!((disamb == null) || disamb.equals(""))) 					//check for disambiguation tag
+							pagetitle = pagetitle + " (" + disamb + ")";
+
+						NodePotentials node = setNodePotentials(doc1, name, offset, j,hitsforId,false);
+						if(!np.contains(node)){
+							np.add(node);
+						}
+						j++;
+					}
+				}
+			}catch(Exception e){
+				System.out.println("Error in setNodePotentialsforDisambiguation : ");
+				e.printStackTrace();
+			}
+			return np;
+		}
+
+
+
+		public ArrayList<NodePotentials> setNodePotentialsforRedirects(Document doc, String name, int offset, int i,int numNodes,HashMap<String,String> temp_map){
+			ArrayList<NodePotentials> np = new ArrayList<NodePotentials>();
+			try{
+				String id = doc.get("page_id");		                  				//get its id
+				String redirect_text = doc.get("redirect_text");
+				String queryString = buildpageidQuery(id);
+				temp_map.put(name+"_"+offset,queryString);
+				searchidInIndex(queryString, numNodes);
+				if(hitsforId.scoreDocs.length==0){
+					return null;
+				}
+				int j = 0;
+				for (; j < numNodes && j < hitsforId.scoreDocs.length;) {
+					Document doc1 = searcher.doc(hitsforId.scoreDocs[j].doc);    //get the next document 
+					String pagetitle = doc1.get("page_title");       			     //get its title
+					String pageid = doc1.get("page_id");		                  				//get its id
+					String disamb = doc1.get("title_disamb");
+					if ((pagetitle == null) || pagetitle.equals("")) 				//use the id if it has no title
+						pagetitle = pageid;
+
+					if (!((disamb == null) || disamb.equals(""))) 					//check for disambiguation tag
+						pagetitle = pagetitle + " (" + disamb + ")";
+
+					NodePotentials node = setNodePotentials(doc1, name, offset, j,hitsforId,false);
+					np.add(node);
+					j++;
+				}
+			}catch(Exception e){
+				System.out.println("Error in setNodePotentialsforRedirects : ");
+				e.printStackTrace();
+			}
+			return np;
+		}
+
+	
+		
+		public NodePotentials setNodePotentials(Document doc, String name, int offset, int index, TopDocs hits, boolean ground){
+			NodePotentials np = new NodePotentials();
+			String pagetitle = doc.get("page_title");       			     //get its title
+			String id = doc.get("page_id");		                  				//get its id
+			String disamb = doc.get("title_disamb");
+			if ((pagetitle == null) || pagetitle.equals("")) 				//use the id if it has no title
+				pagetitle = id;
+
+			if (!((disamb == null) || disamb.equals(""))) 					//check for disambiguation tag
+				pagetitle = pagetitle + " (" + disamb + ")";
+			np.name = pagetitle;
+			np.id = Integer.parseInt(id);
+			np.mention = name + "_" + offset;//allOffset.get(0);
+			np.interval =  Interval.valueOf(offset,offset+name.length()-1);
+			String inlink_count = doc.get("inlink_count");
+			if (inlink_count == null || "".equals(inlink_count)) {
+				np.inlink_count = 0;
+			} else {
+				np.inlink_count = Integer.parseInt(inlink_count);
+			}
+			String outlink_count = doc.get("outlink_count");
+			if (outlink_count == null || "".equals(outlink_count)) {
+				np.outlink_count = 0;
+			} else {
+				np.outlink_count = Integer.parseInt(outlink_count);
+			}
+			np.context_score = hits.scoreDocs[index].score;
+			np.label = 0; //for now keep it as 0, afterwards check ground truth and set this accordingly
+			if(ground)
+				np.label=1;
+			String outlinks = doc.get("association_inlink");
+			if (outlink_count != null && !"".equals(outlink_count)&& !"".equals(outlinks)&&outlinks!=null) {
+				np.outLinks = parseOutlinks(outlinks);
+			}
+			np.inLinks = parseInLinks(np.id);
+
+			//		Attribute c2 = new Attribute("c2");
+			//		Attribute c3 = new Attribute("c3");
+			//		Attribute c4 = new Attribute("c4");
+
+			try {
+
+				Instance xyz = new Instance(dataset.numAttributes());  // [1]
+				xyz.setDataset(dataset);                   // [2]
+				xyz.setValue(dataset.attribute(0), np.context_score);
+				xyz.setValue(dataset.attribute(0), np.inlink_count);
+				xyz.setValue(dataset.attribute(0), np.outlink_count);
+
+				double[] score_01 = cls.distributionForInstance(xyz);
+				np.logistic_score = score_01[1];
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+
+
+			String wordsString = doc.get("synopsis");
+			if(wordsString!=null){
+				ArrayList<String> wordsList = parseSynWords(wordsString);
+				for(int i=0;i<wordsList.size();i++){
+					Matcher matcher = digit_pattern.matcher(wordsList.get(i));
+					if(!(wordsList.get(i).equalsIgnoreCase("na")||matcher.find()||wordsList.get(i).contains("\\\\"))){
+						np.bagOfWords.add(wordsList.get(i));
+					}
+				}
+			}
+
+			//		String wordsStringAdj = doc.get("synopsis_vbadj");
+			//		if(wordsString!=null){
+			//				ArrayList<String> wordsListAdj = parseSynAdjWords(wordsStringAdj);
+			//				for(int i=0;i<wordsListAdj.size();i++){
+			//						if(wordsListAdj.get(i)!=" "||wordsListAdj.get(i)!=null){
+			//							System.out.println(wordsListAdj.get(i).trim());
+			//							np.bagOfWords.add(wordsListAdj.get(i).trim());
+			//						}
+			//					}
+			//				
+			//			}
+
+			String wordsStringAdj = doc.get("synopsis_vbadj");
+			if(wordsStringAdj!=null && wordsStringAdj!=""){	
+				String[] wordsListAdj = wordsStringAdj.split("\\s+"); 
+				//	System.out.println(Arrays.toString(wordsListAdj));
+				for(int i=0;i<wordsListAdj.length;i++){
+					if(wordsListAdj[i]!=null){
+						np.bagOfWords.add(wordsListAdj[i].trim());
+					}
+				}
+			}
+
+			String wordsStringFreq = doc.get("frequent");
+			if(wordsStringFreq!=null){
+				ArrayList<String> wordsListFreq = parseFreqWords(wordsStringFreq);
+				for(int i=0;i<wordsListFreq.size();i++){
+					np.bagOfWords.add(wordsListFreq.get(i));
+				}
+			}
+			//		for(int i=0;i<np.bagOfWords.size();i++){
+			//			System.out.println(np.bagOfWords.get(i));
+			//		}
+			return np;
+		}
+
+		// used for searching a mention in synonym field and retrieving entities corresponding to that
+		public NodePotentialsSet getfromSynonym(String mention, int offset, int numNodes){
+			NodePotentialsSet np_set = new NodePotentialsSet();	
+			try{
+				String title = QueryParser.escape(mention);
+				if (title == null || "".equals(title) || " ".equals(title)) {
+					//	System.out.println("Error: empty title");
+					return null;
+				}
+
+				String queryString = "+synonym:(" + title.toLowerCase()  + ")^4";
+
+				searchStringInIndex(queryString, numNodes);
+
+				np_set.mention_queries.put(mention + "_" + offset, queryString);
+				int i=0;
+				int redundancy=0;
+				HashSet<String> node_names = new HashSet<String>();
+				if(hits.scoreDocs.length==0)
+					return null;
+				for (; i < numNodes && (i+redundancy) < hits.scoreDocs.length;) {
+					Document doc = searcher.doc(hits.scoreDocs[i+redundancy].doc);    //get the next document 
+					String pagetitle = doc.get("page_title");            //get its title
+					String id = doc.get("page_id");                  //get its id
+					String disamb = doc.get("title_disamb");
+					String redirec = doc.get("synonym");
+
+					String[] parsedRedirec = redirec.split("\\|");
+
+					if ((pagetitle == null) || pagetitle.equals("")) //use the id if it has no title
+						pagetitle = id;
+
+					if (!((disamb == null) || disamb.equals(""))) //check for disambiguation tag
+						pagetitle = pagetitle + " (" + disamb + ")";
+
+					if(node_names.contains(pagetitle)){
+						redundancy++;
+						continue;
+					} else {
+						node_names.add(pagetitle);    				
+					}
+					for(String str : parsedRedirec){
+						if(i+redundancy>=numNodes||i+redundancy>=hits.scoreDocs.length) break;
+						NodePotentials np = new NodePotentials();
+						np.name = pagetitle;
+						np.id = Integer.parseInt(id);
+						np.mention =  str.trim()+ "_" + offset;
+						//System.out.println("from redirection  "+ np.mention.split("_")[0]);
+						String inlink_count = doc.get("inlink_count");
+						if (inlink_count == null || "".equals(inlink_count)) {
+							np.inlink_count = 0;
+						} else {
+							np.inlink_count = Integer.parseInt(inlink_count);
+						}
+						String outlink_count = doc.get("outlink_count");
+						if (outlink_count == null || "".equals(outlink_count)) {
+							np.outlink_count = 0;
+						} else {
+							np.outlink_count = Integer.parseInt(outlink_count);
+						}
+						np.context_score = hits.scoreDocs[i].score;
+						np.label = 0; //for now keep it as 0, afterwards check ground truth and set this accordingly
+
+						String outlinks = doc.get("association_inlink");
+						if (outlink_count != null && !"".equals(outlink_count)&& !"".equals(outlinks)&&outlinks!=null) {
+							np.outLinks = parseOutlinks(outlinks);
+						}
+						np_set.potentials_set.add(np);
+						i++;
+
+					}
+
+				}
+
+
+			} catch (Exception e) {
+				System.out.println("Error in getfromSynonym: " + e.getMessage());
+				e.printStackTrace();
+				System.exit(1);
+			}
+			return np_set;
+		}
+		// for InlinkIndex
+		public HashMap<String,String> getInlinkLists(ArrayList<String> id_list) throws Exception {
+			HashMap<String,String> result = new HashMap<String,String>();
+			String id_string = "";
+			for (String id: id_list){
+				id_string += id_list + " ";
+			}
+			String queryString = "+page_id(" + id_string + ")";
+			searchStringInIndex(queryString,id_list.size());
+			if(!(hits.scoreDocs.length==0)){
+				for (int j = 0; j < hits.scoreDocs.length; j++) {
+					Document doc = searcher.doc(hits.scoreDocs[j].doc);    
+					String page_id = doc.get("page_id");       			     
+					String inlinks = doc.get("inlinks");
+					if ((page_id == null) || page_id.equals("")) 			
+						continue;
+
+					result.put(page_id,inlinks);
+				}
+			}
+			return result;
+		}
+
+
+	}

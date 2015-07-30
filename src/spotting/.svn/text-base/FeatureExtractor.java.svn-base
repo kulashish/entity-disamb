@@ -1,0 +1,204 @@
+package spotting;
+
+import java.text.DecimalFormat;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.HashMap;
+import java.io.File;
+
+import org.ejml.simple.SimpleMatrix;
+import org.tartarus.snowball.ext.PorterStemmer;
+
+
+public class FeatureExtractor {
+	LuceneIndexWrapper luceneIndex = null;
+
+
+	public FeatureExtractor() {
+		luceneIndex = new LuceneIndexWrapper("/mnt/bag1/querysystem/indexing/CompleteIndex","/home/pararth/index/RedirectIndex","/home/ashish/wikiindex/index1","/home/pararth/index/DisambIndex");
+
+	}
+	
+	//for collective training purpose
+	public TrainingData extractFeaturesForTraining(KeywordsGroundTruth kws, int numNodes, int consolidationSize) {
+	
+		TrainingData result = new TrainingData();
+		result.groundtruth = kws;
+		result.nodes = luceneIndex.extractNodesForTraining(kws, numNodes, consolidationSize, kws.filename);
+//		System.out.println("Total entities retrieved for file "+kws.filename+ " are " +c);
+		int node_set_size = result.nodes.potentials_set.size();
+		System.out.println("result size "+node_set_size);
+		return result;
+	}
+	
+
+	public TrainingData extractFeatures(KeywordsGroundTruth kws, int numNodes, int consolidationSize) {
+		//	System.out.println("in extract features");
+		TrainingData result = new TrainingData();
+
+		result.groundtruth = kws;
+		result.nodes = luceneIndex.extractNodes(kws, numNodes, consolidationSize, kws.filename);
+
+		HashSet<String> groundtruth = new HashSet<String>();
+		groundtruth.addAll(kws.getGroundTruth());
+		int c=0;
+		for (NodePotentials np : result.nodes.potentials_set) {
+			c++;
+			// if node is present in groundtruth then set its label = 1
+			if (groundtruth.contains(np.name)) {
+				np.label = 1;
+			}
+		}		
+		System.out.println("Total entities retrieved for file "+kws.filename+ " are " +c);
+//		int node_set_size = result.nodes.potentials_set.size();
+
+
+		// DEBUG
+	//	if (true) 
+			
+		return result;
+
+//		result.category_sim = new EdgePotentialsMatrix(node_set_size);
+//		result.category_sim.potential_type = EdgePotentialsMatrix.CATEGORY_SIM;
+//		result.outlink_sim = new EdgePotentialsMatrix(node_set_size);
+//		result.outlink_sim.potential_type = EdgePotentialsMatrix.OUTLINK_SIM;
+//
+//		for (int i = 0; i < node_set_size; i++) {
+//			result.category_sim.matrix.set(i, i, 1.0);
+//			result.outlink_sim.matrix.set(i, i, 1.0);
+//			for (int j = i+1; j < node_set_size; j++) {
+//				double categ_sim = ComputeCategorySimilarity.computeCategSim(
+//						result.nodes.potentials_set.get(i).name, 
+//						result.nodes.potentials_set.get(j).name);
+//				//System.out.println(result.nodes.potentials_set.get(i).name + " " + 
+//				//		result.nodes.potentials_set.get(j).name + ": " + categ_sim);
+//				result.category_sim.matrix.set(i, j, categ_sim);
+//				result.category_sim.matrix.set(j, i, categ_sim);
+//
+//				double outlink_sim = calcOutlinkSim(
+//						result.nodes.potentials_set.get(i).outLinks, 
+//						result.nodes.potentials_set.get(j).outLinks);
+//				//System.out.println(result.nodes.potentials_set.get(i).name + " " + 
+//				//		result.nodes.potentials_set.get(j).name + ": " + outlink_sim);
+//				result.outlink_sim.matrix.set(i, j, outlink_sim);
+//				result.outlink_sim.matrix.set(j, i, outlink_sim);
+//			}
+//		}
+//
+//		return result;
+	}
+
+	public static Double calcInlinkSim(ArrayList<Integer> out1, ArrayList<Integer>  out2){
+		final int numDoc = 4417278;
+		int max=0;
+		int min=0;
+		DecimalFormat df = new DecimalFormat("#.####");
+		if(out1.size()>out2.size()){
+			max=out1.size();
+			min=out2.size();
+		}
+		else{
+			min=out1.size();
+			max=out2.size();
+		}
+
+		double common = 0d;
+		double diff = 0d;
+		for(Integer id1 : out1) {
+			if(out2.contains(id1)) {
+				common++;
+			}
+			else {
+				diff++;
+			}	
+		}
+		//		double num = common;
+		//		double deno = diff+out2.size();
+				
+		if(min==0||max==0||common==0){
+			return 0.0;
+		}
+		else{
+			double num = Math.log(max)-Math.log(common);
+			double deno = Math.log(numDoc)-Math.log(min);
+			if((int)deno==0){
+				return 0.0;
+			}
+			else{
+			return (1-Double.valueOf(df.format(num/deno)));
+			}
+		}
+			
+
+	}
+
+	public static double calcContextSim(ArrayList<String> out1, ArrayList<String>  out2){
+		double common = 0d;
+		double diff = 0d;
+		DecimalFormat df = new DecimalFormat("#.####");
+		for(String id1 : out1) {
+			if(out2.contains(id1)) {
+				common++;
+			}
+			else {
+				diff++;
+			}	
+		}
+		//		float num = 2*common;
+		//		float deno = diff+common+out2.size();
+		double num = common;
+		double deno = diff+out2.size();
+		if((int)deno==0){
+			return 0;
+		}
+		else{
+			return (1-Double.valueOf(df.format(num/deno)));
+		}
+	}
+
+	public static Double calcOutlinkSim(ArrayList<Integer> out1, ArrayList<Integer>  out2){
+		final int numDoc = 4417278;
+		int max=0;
+		int min=0;
+		DecimalFormat df = new DecimalFormat("#.####");
+		if(out1.size()>out2.size()){
+			max=out1.size();
+			min=out2.size();
+		}
+		else{
+			min=out1.size();
+			max=out2.size();
+		}
+
+		double common = 0d;
+		double diff = 0d;
+		for(Integer id1 : out1) {
+			if(out2.contains(id1)) {
+				common++;
+			}
+			else {
+				diff++;
+			}	
+		}
+		//		double num = common;
+		//		double deno = diff+out2.size();
+				
+		if(min==0||max==0||common==0){
+			return 0.0;
+		}
+		else{
+			
+			double num = Math.log(max)-Math.log(common);
+			double deno = Math.log(numDoc)-Math.log(min);
+			if((int)deno==0){
+				return 0.0;
+			}
+			else{
+			return Double.valueOf(df.format(num/deno));
+			}
+		}
+			
+
+	}
+}

@@ -1,0 +1,64 @@
+package spotting;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+
+
+public class ComputeInlinkSimilarity {
+	private static String indexName = "/home/pararth/index/InlinkIndex/";
+	private static LuceneIndexWrapper inlinkIndex = null;
+	private static HashMap<String,String> inlink_lists = null;
+	
+	public static EdgePotentialsMatrix getInlinkSim(ArrayList<String> node_ids) throws Exception{
+	    EdgePotentialsMatrix inlink_sim = new EdgePotentialsMatrix(node_ids.size());
+	    inlink_sim.potential_type = EdgePotentialsMatrix.INLINK_SIM;
+	    inlinkIndex = new LuceneIndexWrapper(indexName);
+	    inlink_lists = inlinkIndex.getInlinkLists(node_ids);
+	    
+	    for (int i = 0; i < node_ids.size(); i++){
+	        inlink_sim.matrix.set(i,i,0.0);
+	        for (int j = i+1; j < node_ids.size(); j++){
+	            Integer sim = computeSim(node_ids.get(i),node_ids.get(j));
+	            inlink_sim.matrix.set(i,j,(float)sim);
+	            inlink_sim.matrix.set(j,i,(float)sim);
+	        }
+	    }
+	    
+	    return inlink_sim;
+	}
+	
+	public static Integer computeSim(String key1, String key2){
+	    String inlinks1 = inlink_lists.get(key1);
+	    String inlinks2 = inlink_lists.get(key2);
+	    if (inlinks1 == null || inlinks2 == null)
+	        return 0;
+	    String[] arr1 = inlinks1.split(" ");
+	    String[] arr2 = inlinks2.split(" ");
+	    Integer sim = 0;
+	    int i = 0;
+	    int j = 0;
+	    while (i < arr1.length && j < arr2.length){
+	        if (arr1[i].equals(arr2[j])){
+	            sim++;
+	            i++;
+	            j++;
+	        }
+	        else if (arr1[i].compareTo(arr2[j]) < 0){
+	            i++;
+	        }
+	        else {
+	            j++;
+	        }
+	    }
+	    return sim;
+	}
+}

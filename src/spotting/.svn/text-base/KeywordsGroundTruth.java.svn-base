@@ -1,0 +1,410 @@
+package spotting;
+
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.StringTokenizer;
+import java.util.HashSet;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+
+import org.tartarus.snowball.ext.PorterStemmer;
+import edu.stanford.nlp.tagger.maxent.MaxentTagger;
+
+import util.MorphologicalAnalyzer;
+import util.TestJAWS;
+import util.XMLTagInfo;
+import weka.core.Stopwords;
+import org.tartarus.snowball.ext.PorterStemmer;
+
+public class KeywordsGroundTruth implements Serializable{
+
+	public int contextSize;
+
+	public class Mention implements Serializable {
+		public String key;
+		public String name;
+		public int offset;
+		public int length;
+		public String query;
+		public String redirectquery;
+		public ArrayList<String> context;
+		public ArrayList<String> context_nouns;
+		public ArrayList<String> context_vbadj;
+
+		public Mention() {
+			key=new String();
+			name = new String();
+			query = new String();
+			redirectquery = new String();
+			context = new ArrayList<String>();
+			context_nouns = new ArrayList<String>();
+			context_vbadj = new ArrayList<String>();
+
+		}
+		public Mention(Mention mention) {
+		}
+	}
+
+	public String TrainDir; 
+	public String GroundTruthDir; 
+	public String filename;        			// name of file from data is extracted
+
+	// this array list of type mention has all keyword+query related information for each document	
+	private ArrayList<Mention> keywords;
+
+	//all four array lists are for ground truth
+	private ArrayList<String> groundTruth;  // list of ground truth entities (wikipedia names) which occur in the document
+	private ArrayList<Integer> offset;      // character offsets of the ground truth entities in the original document
+	private ArrayList<Integer> length;		// can be used for matching entities to mentions
+	private ArrayList<String> groundMention;
+	private String document;        		// optional - store the entire text of the document in String so the File need
+	private String tagged_document;
+
+	public static MaxentTagger tagger = null;
+	public static final String taggerModel = "/home/kanika/workspace/EntityDisamb/data/taggers/left3words-wsj-0-18.tagger";
+	private static Pattern pattern = Pattern.compile("(.*)[/_]([A-Z]*)");
+	private static HashSet<String> noun_tags = new HashSet<String>(); 
+	private static HashSet<String> verb_tags = new HashSet<String>();
+	private static HashSet<String> adj_tags = new HashSet<String>();
+	private static HashSet<String> adverb_tags = new HashSet<String>();
+	private static HashSet<String> extra_tags = new HashSet<String>();
+	public KeywordsGroundTruth(String file , String trainDir , String groundDir) {
+		init(file, trainDir, groundDir);
+		readDocument();
+		try {			
+			setKeywords(false);
+			if (groundDir != null) setGroundTruth();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+
+	public KeywordsGroundTruth(String file , String trainDir) {
+		init(file, trainDir, null);
+	//	readDocument();	
+		readDoc();
+		try {			
+			setKeywords(false);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	public KeywordsGroundTruth(String doc, ArrayList<String> ground) {
+		init("", "", "");
+		groundTruth = ground;
+		document = doc;
+		try {		
+			setKeywords(false);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	private void init(String file , String trainDir , String groundDir) {
+		try {
+			filename = file;
+			TrainDir = trainDir;
+			GroundTruthDir = groundDir;
+			keywords = new ArrayList<Mention>();
+			offset = new ArrayList<Integer>();
+			length = new ArrayList<Integer>();
+			groundMention = new ArrayList<String>();
+			groundTruth = new ArrayList<String>();
+			document = new String();
+			if (tagger == null){
+				tagger = new MaxentTagger(taggerModel);
+				noun_tags.add("NN");
+				noun_tags.add("NNP");
+				noun_tags.add("NNPS");
+				noun_tags.add("NNS");
+				verb_tags.add("VB");
+				verb_tags.add("VBD");
+				verb_tags.add("VBG");
+				verb_tags.add("VBN");
+				verb_tags.add("VBP");
+				verb_tags.add("VBZ");
+				adj_tags.add("JJ");
+				adj_tags.add("JJR");
+				adj_tags.add("JJS");
+				adverb_tags.add("RB");
+				adverb_tags.add("RBR"); 
+				adverb_tags.add("RBS"); 
+				adverb_tags.add("WRB");
+				// extra_tags.add("CC");
+				extra_tags.add("CD");
+				extra_tags.add("DT");
+				extra_tags.add("PDT");
+
+			}
+		} catch (ClassNotFoundException e) {
+			e.printStackTrace();
+			System.exit(1);
+		} catch (IOException e) {
+			e.printStackTrace();
+			System.exit(1);
+		}		
+	}
+
+	public void readDoc(){
+		BufferedReader br;
+		String str;
+		int r;
+		StringBuilder s=new StringBuilder();
+		try {
+			int line=0;
+			br = new BufferedReader(new FileReader(TrainDir+filename));
+			while((r = br.read()) != -1){
+				char ch = (char) r;
+				s.append(ch);
+			}
+			br.close();
+			
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		str=s.toString();
+		str=str.substring(0, str.lastIndexOf(" "));
+		document=str;
+	}
+
+	public void readDocument() {
+		try {
+			String sCurrentLine;
+			FileReader f = new FileReader(TrainDir+filename);
+			BufferedReader br = new BufferedReader(f);
+			int line =0;
+			while ((sCurrentLine = br.readLine()) != null) {
+				if(line==0)
+					document +=sCurrentLine;
+				else
+					document +=" "+sCurrentLine;
+			}
+			f.close();
+
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	// not used anywhere...had written for checking purpose		
+	public void readAndStemDocument(boolean stem){
+		try {
+
+			String text="";
+			ArrayList<String> stemtoken = new ArrayList<String>();
+
+			String sCurrentLine;
+
+			FileReader f = new FileReader(TrainDir+filename);
+			BufferedReader br = new BufferedReader(f);
+			while ((sCurrentLine = br.readLine()) != null) {
+				text += " " + sCurrentLine;
+			}
+			f.close();
+
+			PorterStemmer stemmer=new PorterStemmer();
+			StringTokenizer str=new StringTokenizer(text);
+			while(str.hasMoreTokens()){
+
+				String token=str.nextToken();
+				if (token == null) continue;
+				token = token.replaceAll("[^a-z\\sA-Z\\-]","");
+				if ("".equals(token)) continue;
+				if(stem){
+					stemmer.setCurrent(token);
+					stemmer.stem();
+					stemtoken.add(stemmer.getCurrent().toLowerCase()); //PorterStemmer
+					//keywords.add(ls.getStem(token));  //LovinStemmer
+				}
+				else{
+					stemtoken.add(token);
+					//keywords.add(ls.getStem(token)); //LovinStemmer
+				}
+			}
+			for(int i=0;i<stemtoken.size();i++){
+				document+=" "+stemtoken.get(i);
+			}
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void setKeywords(boolean stem) throws Exception{
+
+		tagged_document = tagger.tagString(document);		
+		ArrayList<String> tokens = new ArrayList<String>();
+		StringTokenizer str = new StringTokenizer(tagged_document);
+
+		while(str.hasMoreTokens()){
+			String token=str.nextToken();
+			if (token == null || "".equals(token) || " ".equals(token)) continue;
+			if(!Stopwords.isStopword(token.split("_")[0])||noun_tags.contains(token.split("_")[1]) || adj_tags.contains(token.split("_")[1])||extra_tags.contains(token.split("_")[1]))
+				tokens.add(token);
+		}
+
+		String prev_tag = null; //if previous token was a noun then add n-gram noun clause
+		int curr_offset = 0;
+		for (int i = 0; i < tokens.size(); i++) {
+			//	System.out.print(" "+tokens.get(i));
+			if (tokens.get(i) == null) continue;
+			Matcher matcher = pattern.matcher(tokens.get(i));
+			matcher.find();
+			String word = matcher.group(1);
+			String tag = matcher.group(2);
+			if (word == null || "".equals(word)) {
+				prev_tag = null;
+				continue;
+			}
+			String token = word.replaceAll("[^0-9a-z\\sA-Z/\\-]","");
+			if ("".equals(token) || "/".equals(token)) {
+				prev_tag = null;
+				continue;
+			}
+			if (!(noun_tags.contains(tag) || adj_tags.contains(tag)||verb_tags.contains(tag)||adverb_tags.contains(tag)||extra_tags.contains(tag))) {
+				prev_tag = null;
+				continue;
+			}
+			Mention mention = new Mention();
+
+			if(tag.equals("JJ")){
+				String temp=TestJAWS.getNounForm(token);
+				if(temp!=null&&!"".equals(temp)){
+					mention.key=temp;
+					prev_tag = null;
+				}
+				else{
+					mention.key=token;
+					prev_tag = null;
+
+				}
+			}
+			else{
+				mention.key  = token;
+			}
+
+			mention.name = word;
+			mention.length = word.length();
+			curr_offset = document.indexOf(word, curr_offset);
+			mention.offset = curr_offset;
+			int context_lo = Math.max(0, i-contextSize);
+			int context_hi = Math.min(tokens.size()-1, i+contextSize);
+			mention.context.addAll(tokens.subList(context_lo, context_hi+1));
+			parseContext(mention);
+			keywords.add(mention);
+		}
+	}
+
+	public void parseContext(Mention mention) {
+		for (String token : mention.context) {
+			Matcher matcher = pattern.matcher(token);
+			matcher.find();
+			String word = matcher.group(1);
+			String tag = matcher.group(2);
+			if (word == null || "".equals(word)) {	
+				continue;
+			}
+			word = word.replaceAll("[^a-z\\sA-Z/]","");
+			if ("".equals(word) || "/".equals(word)) {
+				continue;
+			}
+			if (noun_tags.contains(tag)) {
+				//mention.context_nouns.add(word);
+				mention.context_nouns.addAll(MorphologicalAnalyzer.analyze(word));
+			}
+			if (verb_tags.contains(tag) || adj_tags.contains(tag)) mention.context_vbadj.addAll(MorphologicalAnalyzer.analyze(word));
+		}
+	}
+
+	public void setGroundTruth(ArrayList<XMLTagInfo> groundtruth) throws Exception{
+		for(int i=0; i<groundtruth.size(); i++){
+			groundTruth.add(groundtruth.get(i).wikiEntity);
+			offset.add(groundtruth.get(i).offset);
+			length.add(groundtruth.get(i).length);
+			groundMention.add(groundtruth.get(i).mention);
+		}
+	}
+
+//	public void setGroundMention(){
+//		String text = this.getDocumentText();
+//		for(int i=0; i<this.getGroundOffset().size(); i++){
+//			int start = this.getGroundOffset().get(i);
+//			int end = this.getGroundOffset().get(i) + this.getGroundLength().get(i); //+1 for others
+//			//this line is commented only for wikipedia ground entity creation purpose
+//			//this.groundMention.add(i, text.substring(this.getGroundOffset().get(i), this.getGroundOffset().get(i)+this.getGroundLength().get(i)+1));		
+//			
+//			
+//			if(end>=this.getDocumentText().length()||start==-1||start>=end){	
+//				System.out.println(this.filename+"  "+" end="+end+" start= "+start+" "+this.getDocumentText().length());
+//				System.out.println(this.getDocumentText());
+//			}
+//			this.groundMention.add(i, text.substring(start,end));
+//		}
+//	}
+
+	public ArrayList<String> getGroundMentionNames(){
+		return groundMention;
+	}
+
+	public void setGroundTruth() throws Exception{
+		FileReader f = new FileReader(GroundTruthDir+filename);
+		BufferedReader br = null;
+		try {
+			String sCurrentLine;
+			br = new BufferedReader(f);
+			while ((sCurrentLine = br.readLine()) != null) {
+				groundTruth.add(sCurrentLine);
+			}
+			f.close();
+		}catch (IOException e) {
+			e.printStackTrace();
+		} 
+	}
+
+	public ArrayList<Mention> getKeywords(){
+		return keywords;
+	}
+
+	public ArrayList<String> getMentionNames(){
+		ArrayList<String> names = new ArrayList<String>();
+		for (Mention m : keywords) {
+			names.add(m.name);
+		}
+		return names;
+	}
+
+	public ArrayList<String> getGroundTruth(){
+		return groundTruth;
+	}
+
+	public ArrayList<Integer> getGroundOffset(){
+		return offset;
+	}
+
+	public ArrayList<Integer> getGroundLength(){
+		return length;
+	}
+
+	public String getDocumentText(){
+		return document;
+	}
+
+	//	public static void main(String[] args) {
+	//		KeywordsGroundTruth doc1 = new KeywordsGroundTruth("doc1.txt");
+	//		System.out.println("keywords   "+ doc1.getKeywords());
+	//		System.out.println("ground Truth   "+ doc1.getGroundTruth());
+	//		KeywordsGroundTruth doc2 = new KeywordsGroundTruth("doc2.txt");
+	//		System.out.println("keywords   "+ doc2.getKeywords());
+	//		System.out.println("ground Truth   "+ doc2.getGroundTruth());
+	//	}
+}
+

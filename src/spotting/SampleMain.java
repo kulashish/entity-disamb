@@ -1,0 +1,37 @@
+package spotting;
+
+
+
+
+public class SampleMain { 
+	static String trainDir = "/home/kanika/workspace/WikiTraining/data/temp/";
+	static String groundFilename = "/home/kanika/workspace/WikiTraining/data/KddGroundTruth.xml"; // add filename here!
+	
+	static int maxNodes = 20; // hardcoded max number of entities to be extracted from lucene
+		
+	public static void main(String[] args) {
+		try {
+//			ExtractKeywordsGroundTruth kw_extractor = new ExtractKeywordsGroundTruth();
+//			List<KeywordsGroundTruth> kws = kw_extractor.extractDirectorywithGroundTruth(trainDir, groundFilename);
+//			
+//			List<TrainingData> trainDataList = new ArrayList<TrainingData>();
+//			FeatureExtractor ft_extractor = new FeatureExtractor();
+//			
+//			for (KeywordsGroundTruth kw : kws) {
+//				trainDataList.add(ft_extractor.extractFeatures(kw, maxNodes));
+//			}
+//			for(int i=0;i<trainDataList.size();i++){
+//				System.out.println("categ sim size "+trainDataList.get(i).category_sim.matrix.numRows);
+//				System.out.println("outlink sim size "+trainDataList.get(i).outlink_sim.matrix.numRows);
+//				System.out.println("node potential size "+trainDataList.get(i).nodes.potentials_set.size());
+//			}
+
+			
+		} catch (Exception e) {
+			System.out.println("Error: " + e.getMessage());
+			e.printStackTrace();
+			System.exit(1);
+		}		
+	}
+	
+}

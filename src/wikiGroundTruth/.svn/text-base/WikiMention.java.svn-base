@@ -1,0 +1,9 @@
+package wikiGroundTruth;
+
+import java.util.ArrayList;
+
+public class WikiMention {
+	public String mention;
+	public String groundEntity;
+	public int label;
+}

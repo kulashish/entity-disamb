@@ -1,0 +1,60 @@
+package spotting;
+
+import it.unimi.dsi.util.Interval;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
+
+public class NodePotentials implements  Comparable<NodePotentials>, Serializable {
+
+	public String name = "";				// Wikipedia name of the node
+	public String mention = "";
+	public int id;					// ID of the wikipedia entity stored in Lucene
+	public float context_score;		// context score obtained from Lucene
+	public float inlink_count;
+	public float outlink_count;
+	public double logistic_score;
+	public int label;						//label for the entity 1 or 0 depending upon the ground truth
+	public int offset;
+	public int length;
+	public Interval interval;
+	public ArrayList<Integer> inLinks;
+	public ArrayList<Integer> outLinks;
+	public ArrayList<String> bagOfWords;
+	public HashMap<Integer, String> category;
+	public boolean isPresentInWiki = false;
+	public NodePotentials() {
+		category = new HashMap<Integer, String>();
+		inLinks = new ArrayList<Integer>();
+		bagOfWords = new ArrayList<String>();
+		outLinks = new ArrayList<Integer>();
+		label = 0;
+		id = -1;
+	}
+	
+	@Override
+	public String toString() {
+		return interval + name;
+	}
+
+	@Override
+	public int compareTo(NodePotentials o) {
+		if (o.interval.left > interval.right) return -1;
+		if (o.interval.right < interval.left) return 1;
+		return interval.left - o.interval.left;
+	}
+	public boolean contains(Interval bigger, Interval smaller) {
+		return bigger.left <= smaller.left && bigger.right >= smaller.right;
+	}	
+	
+	public  boolean disjoint(Interval span1, Interval span2) {
+		return (span1.right < span2.left) || (span2.right < span1.left); 
+	}
+	
+	public  boolean overlaps(Interval span1, Interval span2) {
+		return !disjoint(span1, span2);
+	}
+	
+	
+}

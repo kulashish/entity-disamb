@@ -1,0 +1,158 @@
+package spotting;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.ArrayList;
+import java.io.File;
+
+import util.ParseXML;
+import util.XMLTagInfo;
+
+import com.sleepycat.je.tree.Key;
+
+public class ExtractKeywordsGroundTruth {
+
+	//Extracts single instance of keywords and ground truth from given filename (absolute path)
+	// note : ground truth filename is same as train file name but they are in different folders
+	public KeywordsGroundTruth extractSingleFile(String filename) {
+		String trainDir = "/home/kanika/workspace/WikiTraining/data/finalTrainingData/";
+		String groundDir = "//home/kanika/workspace/WikiTraining/data/ground/";
+		KeywordsGroundTruth doc1 = new KeywordsGroundTruth(filename,trainDir,groundDir);
+		return doc1;
+	}
+
+	//Extracts list of keywords & ground truth from all files in given directory path
+	public List<KeywordsGroundTruth> extractDirectory(String trainDir, String groundDir) {
+		ArrayList<KeywordsGroundTruth> allFiles = new ArrayList<KeywordsGroundTruth>();
+		File folder = new File(trainDir);
+		File[] listOfFiles = folder.listFiles();
+
+		for (int i = 0; i < listOfFiles.length; i++) {
+			if (listOfFiles[i].isFile()) {
+				System.out.println("List of files  " + listOfFiles[i]);
+				String filename = listOfFiles[i].getName();
+				//System.out.println("File " + filename);
+				KeywordsGroundTruth temp = new KeywordsGroundTruth(filename,trainDir,groundDir);
+				allFiles.add(temp);
+			}
+		}
+		return allFiles;
+	}
+	public List<KeywordsGroundTruth> extractTestDirectory(String testDir) throws Exception {
+		ArrayList<KeywordsGroundTruth> allFiles = new ArrayList<KeywordsGroundTruth>();
+		File folder = new File(testDir);
+		File[] listOfFiles = folder.listFiles();
+		for (int i = 0; i < listOfFiles.length; i++) {
+			if (listOfFiles[i].isFile()) {
+				System.out.println("List of files  " + listOfFiles[i]);
+				String filename = listOfFiles[i].getName();
+				//System.out.println("File " + filename);
+				KeywordsGroundTruth temp = new KeywordsGroundTruth(filename,testDir);
+				//				if(ParseXML.fileGroundTruthMap.containsKey(filename)){
+				//					temp.setGroundTruth(ParseXML.fileGroundTruthMap.get(filename));
+				//				}
+				allFiles.add(temp);
+			}
+		}
+
+		return allFiles;
+	}
+
+	public KeywordsGroundTruth extractFilewithGroundTruth(String groundfilename,String filename, String trainDir, int contextsize) throws Exception {
+		KeywordsGroundTruth temp = new KeywordsGroundTruth(filename,trainDir);
+	
+		temp.contextSize=contextsize;
+		ParseXML pm = new ParseXML();
+		HashMap<String,ArrayList<XMLTagInfo>> fileGroundTruthMap=pm.parseXML(groundfilename);
+		
+		if(fileGroundTruthMap.containsKey(filename)){
+			temp.setGroundTruth(fileGroundTruthMap.get(filename));
+		}
+		return temp;
+	}
+
+	//give full path for trainDir and xml format ground Truth File.
+	public List<KeywordsGroundTruth> extractDirectorywithGroundTruth(String trainDir, String groundFilename, int contextsize) throws Exception {
+		ArrayList<KeywordsGroundTruth> allFiles = new ArrayList<KeywordsGroundTruth>();
+		File folder = new File(trainDir);
+		File[] listOfFiles = folder.listFiles();
+		ParseXML pm = new ParseXML();
+		HashMap<String,ArrayList<XMLTagInfo>> fileGroundTruthMap=pm.parseXML(groundFilename);
+
+		for (int i = 0; i < listOfFiles.length; i++) {
+			if (listOfFiles[i].isFile()) {
+				//	System.out.println("List of files  " + listOfFiles[i]);
+				String filename = listOfFiles[i].getName();
+				//	System.out.println("File " + filename);
+				KeywordsGroundTruth temp = new KeywordsGroundTruth(filename,trainDir);
+				temp.contextSize=contextsize;
+				if(fileGroundTruthMap.containsKey(filename)){
+					temp.setGroundTruth(fileGroundTruthMap.get(filename));
+					//		temp.setGroundMention();
+				}
+				allFiles.add(temp);
+			}
+		}
+
+		return allFiles;
+	}
+
+
+	//for training data generation purposes 
+
+	public KeywordsGroundTruth extractForTrainingwithGroundTruth(String trainDir, String filename, String groundFilenameWiki, String groundFilenameManual, int contextsize) throws Exception {
+		KeywordsGroundTruth file_kwt = new KeywordsGroundTruth(filename,trainDir);
+		System.out.println("done keywords ground truth in extractFilewithGroundTruth");
+		ParseXML pm = new ParseXML();
+		HashMap<String,ArrayList<XMLTagInfo>> fileGroundTruthMapWiki=pm.parseXML(groundFilenameWiki);
+		System.out.println("done wiki parsing");
+		ParseXML pm1 = new ParseXML();
+		HashMap<String,ArrayList<XMLTagInfo>> fileGroundTruthMapManual=pm1.parseXML(groundFilenameManual);
+		for(int i=0;i<fileGroundTruthMapWiki.get(filename).size();i++){
+			fileGroundTruthMapWiki.get(filename).get(i).wikiEntity = fileGroundTruthMapWiki.get(filename).get(i).wikiEntity.replaceAll("_", " ");
+		//	System.out.println(fileGroundTruthMapWiki.get(filename).get(i).wikiEntity);
+		}
+		System.out.println(fileGroundTruthMapManual.get(filename).size()+"  "+fileGroundTruthMapWiki.get(filename).size());
+		System.out.println("done manual parsing");
+		file_kwt.contextSize=contextsize;
+		
+		if(fileGroundTruthMapWiki.containsKey(filename)){
+			file_kwt.setGroundTruth(fileGroundTruthMapWiki.get(filename));
+			System.out.println(file_kwt.getGroundMentionNames().size());
+		}
+		file_kwt.setGroundTruth(fileGroundTruthMapManual.get(filename));
+		System.out.println(file_kwt.getGroundMentionNames().size());
+		return file_kwt;
+	}
+
+	//for debugging purposes
+	public KeywordsGroundTruth extractFromString(String document, ArrayList<String> groundTruth,int csize) throws Exception {
+		KeywordsGroundTruth doc1 = new KeywordsGroundTruth(document, groundTruth);
+		doc1.contextSize=csize;
+		return doc1;
+	}
+
+	/*public static void main(String args[]) throws Exception {
+		ExtractKeywordsGroundTruth ex = new ExtractKeywordsGroundTruth();
+		List<KeywordsGroundTruth> li = null;
+		//li = ex.extractDirectory("/home/pararth/Projects/rndproj/svn/WikiTraining/data/train/",
+			//	                 "/home/pararth/Projects/rndproj/svn/WikiTraining/data/ground/");
+		li = ex.extractDirectorywithGroundTruth("/home/pararth/Projects/rndproj/svn/WikiTraining/data/KddTrain2/", 
+				"/home/pararth/Projects/rndproj/svn/WikiTraining/data/KddGroundTruth.xml");
+		for(int i=0; i<li.size();i++){
+			System.out.println("Doc no. "+ i );
+			System.out.println("Document: "+li.get(i).getDocumentText());
+			System.out.println("Keywords: "+li.get(i).getMentionNames());
+			System.out.println("ground Truth: "+li.get(i).getGroundTruth());
+		}
+		KeywordsGroundTruth obj = ex.extractSingleFile("doc1.txt");
+		System.out.println("\nDocument: "+obj.getDocumentText());
+		System.out.println("Keywords: "+obj.getMentionNames());
+		System.out.println("ground Truth: "+obj.getGroundTruth());
+		KeywordsGroundTruth obj2 = ex.extractSingleFile("doc2.txt");
+		System.out.println("\nDocument: "+obj2.getDocumentText());
+		System.out.println("Keywords: "+obj2.getMentionNames());
+		System.out.println("ground Truth: "+obj2.getGroundTruth());
+	}*/
+}
+

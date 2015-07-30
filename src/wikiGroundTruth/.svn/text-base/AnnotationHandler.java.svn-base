@@ -1,0 +1,158 @@
+package wikiGroundTruth;
+
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.util.Interval;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.HashMap;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import org.hibernate.cache.Cache;
+
+import com.sleepycat.je.tree.Node;
+
+import spotting.NodePotentials;
+
+public class AnnotationHandler extends HttpServlet{
+	public String xmlDir="/home/kanika/wikiTraining/xmls/";
+	public void doGet(HttpServletRequest request,HttpServletResponse response)throws ServletException, IOException {
+
+		response.setContentType("text/html");
+		PrintWriter out = response.getWriter();
+		String value = request.getParameter("radio");
+		String offset=request.getParameter("hiddenOffset");
+		String mention=request.getParameter("hiddenMention");
+		String docName=request.getParameter("hiddenfileName");
+		String annotateTrue=request.getParameter("annotate");
+		String otherent = request.getParameter("OtherEntity");
+		
+		/**
+		 * to see if the file is completed
+		 */
+		String doneFile=request.getParameter("done");
+		String docNameDone=request.getParameter("hiddenfileNameDone");
+		System.out.println("doc when done:: " + docNameDone);
+
+		HashMap<Integer, NodePotentials> currentFileMap = new HashMap<Integer, NodePotentials>();
+
+		if(doneFile == null){
+			currentFileMap=getHashMap("/home/kanika/wikiTraining/objects/",docName);	
+		}
+		else{
+			currentFileMap=getHashMap("/home/kanika/wikiTraining/objects/",docNameDone);	
+		}
+
+		//		System.out.println(docName);
+		//		System.out.println(doneFile);
+
+		if(doneFile==null && annotateTrue!=null){
+
+			System.out.println("Annotated  "+mention);
+			
+			NodePotentials np=new NodePotentials();
+			if(value!=null)
+				np.name=value;
+			else
+				np.name = otherent;
+			np.mention=mention;
+			np.offset=Integer.parseInt(offset);
+			np.interval=Interval.valueOf(Integer.parseInt(offset), Integer.parseInt(offset)+mention.length());
+
+			currentFileMap.put(Integer.parseInt(offset), np);
+			//			System.out.println("ut into hashmap");
+			//			System.out.println(currentFileMap.get(np.offset).mention);
+			persist(currentFileMap, "/home/kanika/wikiTraining/objects/", docName);
+
+
+
+		}
+		else if(doneFile!=null){
+
+			/*
+			 * when done
+			 */
+			BufferedWriter br=new BufferedWriter(new FileWriter("/home/kanika/wikiTraining/logs/AnnotatedFiles.txt",true));
+			br.write(docNameDone);
+			br.write("\n");
+			br.close();
+
+			Check.onGoingFiles.remove(docNameDone);
+			Check.allFilesInTrainDir.remove(docNameDone);
+			System.out.println("writing xml for "+docNameDone);
+			BufferedWriter outXml = new BufferedWriter(new FileWriter(xmlDir+docNameDone+".xml"));
+			outXml.write("<iitb.wikipedia.entityAnnotations>");
+			outXml.write("\n");
+			for(int key: currentFileMap.keySet()){
+				outXml.write("<annotation>");
+				outXml.write("\n");
+				outXml.write("<docName>"+docNameDone.replaceAll("&","&amp;")+"</docName>");
+				outXml.write("\n");
+				outXml.write("<wikiName>"+currentFileMap.get(key).name.replaceAll("&","&amp;")+"</wikiName>");
+				outXml.write("\n");
+				outXml.write("<offset>"+currentFileMap.get(key).offset+"</offset>");
+				outXml.write("\n");
+				outXml.write("<mention>"+currentFileMap.get(key).mention.replaceAll("&","&amp;")+"</mention>");
+				outXml.write("\n");
+				outXml.write("<length>"+currentFileMap.get(key).mention.length()+"</length>");
+				outXml.write("\n");
+				outXml.write("</annotation>");
+				outXml.write("\n");
+			}
+			outXml.write("</iitb.wikipedia.entityAnnotations>");
+			outXml.close();
+		
+//		     File f = new File(docNameDone);
+//			 boolean success = f.delete();
+//			 if(success==true){
+//				 System.out.println(docNameDone + "  file HashMap object deleted after creating xml");
+//			 }
+		}
+
+
+		/*
+		 * when next doc
+		 * 
+		 */
+	}
+
+
+	private void persist(HashMap<Integer, NodePotentials> currentFile, String path,
+			String filename) {
+		System.out.println("Writing hashMap for file :: "+filename+" current size of map :: "+currentFile.keySet().size());
+		//		for(int i:currentFile.keySet()){
+		//			System.out.println(currentFile.get(i).mention+" "+currentFile.get(i).name);
+		//		}
+		Serializer.encode(currentFile, path, filename);
+	}
+
+	private HashMap<Integer, NodePotentials> getHashMap(String path, String filename) {
+		System.out.println("Retrieving hashMap for file :: "+filename);
+		HashMap<Integer, NodePotentials> temp=null;
+		if(Check.onGoingFiles.contains(filename)){
+			HashMap<Integer, NodePotentials> hashMap = (HashMap<Integer, NodePotentials>) Serializer.decode(path,filename);
+			temp=hashMap;
+			for(int key:temp.keySet()){
+				System.out.println("mention :: "+temp.get(key).mention+" entity :: "+temp.get(key).name);
+			}
+		}
+		if(temp==null){
+			System.out.println("Creating new hashMap for file ::  "+filename);
+			temp=new HashMap<Integer, NodePotentials>();
+			Check.onGoingFiles.add(filename);
+		}
+
+
+		return temp;
+	}
+
+
+
+}

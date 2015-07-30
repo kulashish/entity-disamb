@@ -1,0 +1,94 @@
+package spotting;
+
+public class CollectiveTraining {
+
+	private String trainDir ; //= "/home/kanika/wikiTraining/train1/";
+	private String groundFilenameWiki ; //= "/home/kanika/wikiTraining/ground/wikipediaGroundtruth.xml"; 
+	private String groundFilenameManual; //= "/home/kanika/wikiTraining/xmls/Mayan.xml";
+	private String filename;
+	private TrainingData trainData;
+	int maxNodes=3;
+	int consolidationSize = 5;
+	int csize=20;
+
+	
+	public CollectiveTraining(String dirOfDocument, String groundWikifile , String groundManualFile, String docname) {
+		trainDir = dirOfDocument;
+		groundFilenameManual = groundManualFile;
+		groundFilenameWiki = groundWikifile;
+		filename = docname ;
+		trainData = new TrainingData();
+	}
+	
+	
+	public void spotter(){
+
+		ExtractKeywordsGroundTruth kw_extractor = new ExtractKeywordsGroundTruth();
+		KeywordsGroundTruth kw;
+		try {
+			kw = kw_extractor.extractForTrainingwithGroundTruth(trainDir,filename, groundFilenameWiki, groundFilenameManual,csize);
+			FeatureExtractor ft_extractor = new FeatureExtractor();
+			
+			long start = System.currentTimeMillis();
+			
+			trainData = ft_extractor.extractFeaturesForTraining(kw, maxNodes,consolidationSize);
+		
+			long elapsedTimeMillis = System.currentTimeMillis()-start;
+			float elapsedTimeMin = elapsedTimeMillis/(60*1000F);
+
+			System.out.println("For file "+kw.filename+" process completed in  "+elapsedTimeMin +" mins");		
+			
+			for(NodePotentials np : trainData.nodes.potentials_set){
+				System.out.println(np.label+" "+np.mention +"        "+np.name+"  "+np.context_score+"  "+np.inlink_count+" "+np.outlink_count+" "+np.logistic_score);
+
+			}
+
+		}catch (Exception e) {
+			e.printStackTrace();
+		}
+
+	}
+
+
+	public void edgeFeatures(){
+
+		for(int j=0;j<trainData.nodes.potentials_set.size();j++){
+			for(int k=0;k<trainData.nodes.potentials_set.size();k++){
+				if(j!=k)
+				{
+					double catScore = ComputeCategorySimilarity.computeCategSim(
+							trainData.nodes.potentials_set.get(j).name.replaceAll(" ", "_"), 
+							trainData.nodes.potentials_set.get(k).name.replaceAll(" ", "_"));
+
+					double outLinkScore = FeatureExtractor.calcOutlinkSim(
+							trainData.nodes.potentials_set.get(j).outLinks, 
+							trainData.nodes.potentials_set.get(k).outLinks);
+
+					double inLinkScore = FeatureExtractor.calcInlinkSim(
+							trainData.nodes.potentials_set.get(j).inLinks, 
+							trainData.nodes.potentials_set.get(k).inLinks);
+
+					double contextScore = FeatureExtractor.calcContextSim(
+							trainData.nodes.potentials_set.get(j).bagOfWords, 
+							trainData.nodes.potentials_set.get(k).bagOfWords);
+					System.out.println(catScore+" "+outLinkScore+" "+inLinkScore+" "+contextScore);
+				}
+			}
+		}
+
+	}
+	
+	
+	public static void main(String[] args) {
+		String docName = "Mayan";
+		
+		CollectiveTraining ct1 = new CollectiveTraining("/home/kanika/wikiTraining/train1/", //instantiate one object of Collective Training for a document
+				"/home/kanika/wikiTraining/ground/wikipediaGroundtruth.xml",
+				"/home/kanika/wikiTraining/xmls/"+docName+".xml", 
+				docName);
+		
+		ct1.spotter(); //call spotter function;
+		ct1.edgeFeatures();
+	}
+
+}
